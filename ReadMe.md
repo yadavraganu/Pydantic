@@ -119,3 +119,172 @@ class Model(BaseModel):
 pprint(Model.model_json_schema())
 
 ```
+### Handling Extra Fields
+
+* **Core Concept:** Dictates how Pydantic handles fields present in the input data that are not defined on the model.
+* **Default Behavior:** Extra fields are ignored by default. They will not throw an error but won't be accessible on the instance.
+* **Configuration Options (`extra`):** `'ignore'`, `'allow'`, or `'forbid'`.
+
+```python
+from pydantic import BaseModel, ConfigDict, ValidationError
+
+# Case 1: Forbid Extra Fields
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    name: str
+
+try:
+    StrictModel(name="Alice", age=30)  # 'age' is extra
+except ValidationError as e:
+    print(e)  # Raises Extra attributes not allowed
+
+# Case 2: Allow Extra Fields
+class FlexibleModel(BaseModel):
+    model_config = ConfigDict(extra='allow')
+    name: str
+
+m = FlexibleModel(name="Bob", age=30)
+print(m.model_extra)  # {'age': 30}
+
+```
+### Strict and Lax Type Coercion
+
+* **Core Concept:** Controls whether Pydantic attempts to cast incompatible data types into the target type.
+* **Lax Mode (Default):** Coerces compatible values (e.g., string `"123"` to an integer `123`).
+* **Strict Mode (`strict=True`):** Disables type casting. Input types must precisely match annotations.
+
+```python
+# Lax Mode (Default)
+class LaxModel(BaseModel):
+    age: int
+
+print(LaxModel(age="42"))  # Output: age=42 (coerced)
+
+# Strict Mode
+class StrictTypeModel(BaseModel):
+    model_config = ConfigDict(strict=True)
+    age: int
+
+try:
+    StrictTypeModel(age="42")
+except ValidationError as e:
+    print(e)  # Input should be a valid integer
+
+```
+### Validating Default Values
+
+* **Core Concept:** Determines if default values are verified against validation checks upon model instantiation.
+* **Default Behavior:** By default, Pydantic assumes code defaults are valid and does not check them at instantiation.
+
+```python
+# Default Behavior (No validation on default)
+class BadDefaultModel(BaseModel):
+    score: int = "not an int"  # Pydantic lets this slide on instantiation!
+
+m = BadDefaultModel()
+print(type(m.score))  # <class 'str'> -> Breaks your type hint!
+
+# Enforcing Default Validation
+class ValidatedDefaultModel(BaseModel):
+    model_config = ConfigDict(validate_default=True)
+    score: int = "not an int"
+
+try:
+    ValidatedDefaultModel()
+except ValidationError as e:
+    print(e)  # Input should be a valid integer
+
+```
+
+### Validating Assignments
+
+* **Core Concept:** Validates data when attributes are updated *after* the model instance has already been built.
+* **Default Behavior:** Mutating attributes post-creation bypasses validation by default.
+
+```python
+class AssignmentModel(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+    price: float
+
+m = AssignmentModel(price=19.99)
+try:
+    m.price = "Free"  # Triggers real-time validation
+except ValidationError as e:
+    print(e)  # Input should be a valid number
+
+```
+### Mutability
+
+* **Core Concept:** Controls whether the model can be changed after construction, allowing objects to become hashable.
+* **Default Behavior:** Models are completely mutable.
+
+```python
+class FrozenModel(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    user_id: int
+
+m = FrozenModel(user_id=101)
+
+try:
+    m.user_id = 102  # Raises ValidationError: Instance is frozen
+except ValidationError as e:
+    print(e)
+
+# Frozen models can be used in sets or dict keys!
+my_set = {m}
+print(my_set)  # Workable because it generates a __hash__ method
+
+```
+### Coercing Numbers to Strings
+
+* **Core Concept:** Specifically overrides how numerical types match when a string field annotation is expected.
+
+```python
+class NumberToStrModel(BaseModel):
+    model_config = ConfigDict(coerce_numbers_to_str=True)
+    username: str
+
+m = NumberToStrModel(username=12345)
+print(m.username)  # Output: '12345' (Cast directly to string)
+
+```
+
+### Standardizing Strings
+
+* **Core Concept:** Automates typical string sanitization logic (stripping whitespace, modifying case) right inside the model configuration.
+
+```python
+class CleanStringModel(BaseModel):
+    model_config = ConfigDict(
+        str_strip_whitespace=True,
+        str_to_upper=True
+    )
+    code: str
+
+m = CleanStringModel(code="   amzn \t ")
+print(f"'{m.code}'")  # Output: 'AMZN'
+
+```
+
+### Handling Python Enums
+
+* **Core Concept:** Manages how Python native `Enum` objects are handled during serialization operations like `.model_dump()`.
+
+```python
+from enum import Enum
+
+class Status(Enum):
+    ACTIVE = "active_user"
+    PENDING = "pending_user"
+
+class UserModel(BaseModel):
+    model_config = ConfigDict(use_enum_values=True)
+    status: Status
+
+u = UserModel(status=Status.ACTIVE)
+print(u.status)  # Returns the Enum Object: Status.ACTIVE
+
+# Notice the difference during dictionary export:
+print(u.model_dump())  # Output: {'status': 'active_user'} (Raw primitive value)
+
+```
